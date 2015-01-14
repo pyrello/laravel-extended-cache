@@ -9,7 +9,7 @@ class LaravelExtendedCacheServiceProvider extends ServiceProvider {
 	 *
 	 * @var bool
 	 */
-	protected $defer = false;
+	protected $defer = true;
 
 	/**
 	 * Bootstrap the application events.
@@ -28,7 +28,10 @@ class LaravelExtendedCacheServiceProvider extends ServiceProvider {
 	 */
 	public function register()
 	{
-		//
+        $this->app->bindShared('cache', function($app)
+        {
+            return new CacheManager($app);
+        });
 	}
 
 	/**
