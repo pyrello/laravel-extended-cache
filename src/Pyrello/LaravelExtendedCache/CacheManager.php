@@ -9,7 +9,7 @@ class CacheManager extends BaseCacheManager
      * Create a new cache repository with the given implementation.
      *
      * @param  \Illuminate\Cache\StoreInterface  $store
-     * @return \GracefulCache\Repository
+     * @return \Pyrello\LaravelExtendedCache\Repository
      */
     protected function repository(StoreInterface $store)
     {
