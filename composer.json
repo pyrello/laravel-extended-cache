@@ -1,0 +1,23 @@
+{
+    "name": "pyrello/laravel-extended-cache",
+    "description": "",
+    "authors": [
+        {
+            "name": "Sean Adams-Hiett",
+            "email": "pyrello@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.4.0",
+        "illuminate/support": "4.2.*"
+    },
+    "autoload": {
+        "classmap": [
+            "src/migrations"
+        ],
+        "psr-0": {
+            "Pyrello\\LaravelExtendedCache\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}
