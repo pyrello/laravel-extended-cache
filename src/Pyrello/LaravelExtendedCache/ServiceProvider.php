@@ -1,25 +1,8 @@
 <?php namespace Pyrello\LaravelExtendedCache;
 
-use Illuminate\Support\ServiceProvider as BaseServiceProvider;
+use Illuminate\Cache\CacheServiceProvider;
 
-class ServiceProvider extends BaseServiceProvider {
-
-	/**
-	 * Indicates if loading of the provider is deferred.
-	 *
-	 * @var bool
-	 */
-	protected $defer = true;
-
-	/**
-	 * Bootstrap the application events.
-	 *
-	 * @return void
-	 */
-	public function boot()
-	{
-		$this->package('pyrello/laravel-extended-cache');
-	}
+class ServiceProvider extends CacheServiceProvider {
 
 	/**
 	 * Register the service provider.
@@ -28,20 +11,12 @@ class ServiceProvider extends BaseServiceProvider {
 	 */
 	public function register()
 	{
+        parent::register();
+
         $this->app->bindShared('cache', function($app)
         {
             return new CacheManager($app);
         });
-	}
-
-	/**
-	 * Get the services provided by the provider.
-	 *
-	 * @return array
-	 */
-	public function provides()
-	{
-		return array();
 	}
 
 }

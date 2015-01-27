@@ -1,72 +1,22 @@
 <?php namespace Pyrello\LaravelExtendedCache;
 
+use Carbon\Carbon;
 use Illuminate\Cache\Repository as BaseRepository;
+use Illuminate\Cache\StoreInterface;
 
-class Repository extends BaseRepository {
+class Repository extends BaseRepository
+{
+    protected $table;
 
-    /**
-     * The prefix of the string to be appended to each cache value. This is an added
-     * precaution to ensure the correct value will be stripped from the end result
-     * @var string
-     */
-    public static $gracefulPrefix = '?GracefulCacheExpiration=';
+    protected $sleep;
 
-    /**
-     * The length of time (seconds) we extend each about-to-expire cache key
-     * @var integer
-     */
-    public static $extendMinutes = 5;
-
-    /**
-     * The threshold, in seconds, for how much longer a key has until expiration
-     * before it is re-fetched.
-     * @var integer
-     */
-    public static $expireThreshold = 30;
-
-    /**
-     * Adds a timing suffix to the value, in order to show when the cached value
-     * will expire
-     * @param  string $value   The original value the client wishes to cache
-     * @param  int    $minutes The length of time this is going to be cached for
-     * @return string          The modified value with expiration time appended
-     */
-    public function getModifiedValue($value, $minutes) {
-        $serializedValue = serialize($value);
-        $expirationTime = time() + ($minutes * 60);
-        return $serializedValue . static::$gracefulPrefix . $expirationTime;
-    }
-
-    /**
-     * Gets the original cache value, without the modified expiration time
-     * @param  string $value The full value stored in the cache
-     * @return string        The unmodified cached value
-     */
-    public function getOriginalValue($value) {
-        if(is_string($value)) {
-            $suffixIndex = strpos($value, static::$gracefulPrefix);
-            if($suffixIndex) {
-                $suffixLength = strlen(substr($value, $suffixIndex));
-                $originalSerializedValue = substr($value, 0, 0 - $suffixLength);
-                return unserialize($originalSerializedValue);
-            }
-        }
-        return $value;
-    }
-
-    /**
-     * Gets the expiration time from the given modified cache value
-     * @param  string $value The modified cache value, with expiration time appended
-     * @return int           The timestamp of when this value will expire
-     */
-    public function getExpirationTime($value) {
-        if(is_string($value)) {
-            $expirationIndex = strpos($value, static::$gracefulPrefix);
-            if($expirationIndex) {
-                return (int) substr($value, $expirationIndex + strlen(static::$gracefulPrefix));
-            }
-        }
-        return 0;
+    public function __construct(StoreInterface $store)
+    {
+        \Log::debug('Running constructor for laravel extended cache repository');
+//        $this->table = \Config::get('laravel-extended-cache::table');
+        $this->table = 'cache_flags';
+        $this->sleep = 2;
+        parent::__construct($store);
     }
 
     /**
@@ -77,29 +27,17 @@ class Repository extends BaseRepository {
      * @param  mixed   $default
      * @return mixed
      */
-    public function get($key, $default = null) {
-        $value = $this->store->get($key);
+    public function get($key, $default = null)
+    {
+        \Log::debug('Running cache::get through laravel extended cache');
+        //todo: check cache flag, if it exists, sleep until it doesn't
 
-        if(!is_null($value)) {
-            //get the original value and the expiration time
-            $originalValue = $this->getOriginalValue($value);
-            $expirationTime = $this->getExpirationTime($value) - static::$expireThreshold;
-
-            //Check if this cache entry is going to expire soon (within {threshold} seconds)
-            if(time() > $expirationTime) {
-                //to solve this, the value of the existing cache key will be extended
-                //while the new value is fetched
-                $this->put($key, $originalValue, static::$extendMinutes);
-
-                //make sure the client sees that we need a new value
-                $value = null;
-            } else {
-                //make sure to return the original value and not the one with the expiration time in it
-                $value = $originalValue;
-            }
+        while ($this->cacheFlagExists($key)) {
+            \Log::debug('Waiting for cache to finish generating...');
+            sleep($this->sleep);
         }
 
-        return ! is_null($value) ? $value : value($default);
+        parent::get($key, $default);
     }
 
     /**
@@ -110,13 +48,80 @@ class Repository extends BaseRepository {
      * @param  \DateTime|int  $minutes
      * @return void
      */
-    public function put($key, $value, $minutes) {
+    public function put($key, $value, $minutes)
+    {
         $minutes = $this->getMinutes($minutes);
 
-        //get the modified value with the expiration time
-        $modifiedValue = $this->getModifiedValue($value, $minutes);
+        if ( ! is_null($minutes))
+        {
+            $this->createCacheFlag($key, $value, $minutes);
+            $this->store->put($key, $value, $minutes);
+            $this->deleteCacheFlag($key);
+        }
+    }
 
-        $this->store->put($key, $modifiedValue, $minutes);
+    /**
+     * Check if there is a cache flag for a particular key in the cache
+     *
+     * @param $key
+     * @return bool
+     */
+    public function cacheFlagExists($key)
+    {
+        // If the flag exists, return true
+        if (!is_null($this->getCacheFlag($key))) {
+            \Log::debug('Cache flag exists...');
+            return true;
+        }
+        // If the flag doesn't exist, return false
+        \Log::debug('Cache flag does not exist...');
+        return false;
+    }
+
+    public function getCacheFlag($key)
+    {
+        \Log::debug('Getting the cache flag for ' . $key . '...');
+        $cache_flag = \DB::table($this->table)->where('key', '=', $this->getCacheFlagKey($key))->first();
+        // todo: abstract this into a separate layer so it doesn't call the database directly.
+        return $cache_flag;
+    }
+
+    /**
+     * Create the flag for a cached item that is being created
+     *
+     * @param $key
+     * @return bool
+     */
+    public function createCacheFlag($key)
+    {
+        \Log::debug('Creating the cache flag for ' . $key . '...');
+        // Create the cache flag
+        return \DB::table($this->table)->insert([
+            'key' => $this->getCacheFlagKey($key),
+            'created_at' => Carbon::now(),
+        ]);
+    }
+
+    /**
+     * Delete the flag for a cached item that has been created
+     *
+     * @param $key
+     */
+    public function deleteCacheFlag($key)
+    {
+        \Log::debug('Deleting cache flag for ' . $key . '...');
+        \DB::table($this->table)->where('key', '=', $this->getCacheFlagKey($key))->delete();
+    }
+
+    /**
+     * Generate a key for the cache flag
+     *
+     * @param $key
+     * @return mixed
+     */
+    public function getCacheFlagKey($key)
+    {
+        return $key;
     }
 
 }
