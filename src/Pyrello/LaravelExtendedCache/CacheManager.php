@@ -13,7 +13,6 @@ class CacheManager extends BaseCacheManager
      */
     protected function repository(StoreInterface $store)
     {
-        \Log::debug('Creating repository');
         return new Repository($store);
     }
 }

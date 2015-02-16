@@ -1,6 +1,7 @@
 <?php namespace Pyrello\LaravelExtendedCache;
 
 use Carbon\Carbon;
+use Closure;
 use Illuminate\Cache\Repository as BaseRepository;
 use Illuminate\Cache\StoreInterface;
 
@@ -12,10 +13,8 @@ class Repository extends BaseRepository
 
     public function __construct(StoreInterface $store)
     {
-        \Log::debug('Running constructor for laravel extended cache repository');
-//        $this->table = \Config::get('laravel-extended-cache::table');
         $this->table = 'cache_flags';
-        $this->sleep = 2;
+        $this->sleep = 3;
         parent::__construct($store);
     }
 
@@ -29,15 +28,11 @@ class Repository extends BaseRepository
      */
     public function get($key, $default = null)
     {
-        \Log::debug('Running cache::get through laravel extended cache');
-        //todo: check cache flag, if it exists, sleep until it doesn't
-
         while ($this->cacheFlagExists($key)) {
-            \Log::debug('Waiting for cache to finish generating...');
             sleep($this->sleep);
         }
 
-        parent::get($key, $default);
+        return parent::get($key, $default);
     }
 
     /**
@@ -54,10 +49,41 @@ class Repository extends BaseRepository
 
         if ( ! is_null($minutes))
         {
-            $this->createCacheFlag($key, $value, $minutes);
+            $this->createCacheFlag($key);
             $this->store->put($key, $value, $minutes);
             $this->deleteCacheFlag($key);
         }
+    }
+
+    /**
+     * Get an item from the cache, or store the default value forever.
+     *
+     * @param  string   $key
+     * @param  \Closure  $callback
+     * @return mixed
+     */
+    public function rememberForever($key, Closure $callback)
+    {
+        // If the item exists in the cache we will just return this immediately
+        // otherwise we will execute the given Closure and cache the result
+        // of that execution for the given number of minutes. It's easy.
+        if ( ! is_null($value = $this->get($key)))
+        {
+            return $value;
+        }
+
+        // If creating the cache flag is successful, finish this up
+        if (!is_null($this->createCacheFlag($key))) {
+            $this->forever($key, $value = $callback());
+            $this->deleteCacheFlag($key);
+        }
+        // Otherwise, we assume that another cache flag has been created
+        // and therefore we just need to get the asset as soon as its ready
+        else {
+            $value = $this->get($key);
+        }
+
+        return $value;
     }
 
     /**
@@ -70,18 +96,15 @@ class Repository extends BaseRepository
     {
         // If the flag exists, return true
         if (!is_null($this->getCacheFlag($key))) {
-            \Log::debug('Cache flag exists...');
             return true;
         }
         // If the flag doesn't exist, return false
-        \Log::debug('Cache flag does not exist...');
         return false;
     }
 
     public function getCacheFlag($key)
     {
-        \Log::debug('Getting the cache flag for ' . $key . '...');
-        $cache_flag = \DB::table($this->table)->where('key', '=', $this->getCacheFlagKey($key))->first();
+        $cache_flag = \DB::table($this->table)->where('key', 'LIKE', $this->getCacheFlagKey($key) . '%')->first();
         // todo: abstract this into a separate layer so it doesn't call the database directly.
         return $cache_flag;
     }
@@ -94,12 +117,15 @@ class Repository extends BaseRepository
      */
     public function createCacheFlag($key)
     {
-        \Log::debug('Creating the cache flag for ' . $key . '...');
-        // Create the cache flag
-        return \DB::table($this->table)->insert([
-            'key' => $this->getCacheFlagKey($key),
-            'created_at' => Carbon::now(),
-        ]);
+        try {
+            // Create the cache flag
+            return \DB::table($this->table)->insert([
+                'key' => $this->getCacheFlagKey($key) . '_' . md5(time()),
+                'created_at' => Carbon::now(),
+            ]);
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     /**
@@ -109,8 +135,7 @@ class Repository extends BaseRepository
      */
     public function deleteCacheFlag($key)
     {
-        \Log::debug('Deleting cache flag for ' . $key . '...');
-        \DB::table($this->table)->where('key', '=', $this->getCacheFlagKey($key))->delete();
+        \DB::table($this->table)->where('key', 'LIKE', $this->getCacheFlagKey($key) . '%')->delete();
     }
 
     /**
