@@ -2,11 +2,15 @@
 
 use Carbon\Carbon;
 use Closure;
+use \Config;
 use Illuminate\Cache\Repository as BaseRepository;
 use Illuminate\Cache\StoreInterface;
+use \Log;
 
 class Repository extends BaseRepository
 {
+    protected $debug = false;
+
     protected $table;
 
     protected $sleep;
@@ -15,6 +19,8 @@ class Repository extends BaseRepository
     {
         $this->table = 'cache_flags';
         $this->sleep = 3;
+//        $this->debug = Config::get('app.debug');
+        $this->debug = true;
         parent::__construct($store);
     }
 
@@ -50,6 +56,9 @@ class Repository extends BaseRepository
         if ( ! is_null($minutes))
         {
             $this->createCacheFlag($key);
+            if ($this->debug) {
+                Log::debug('Generating cache for ' . $key);
+            }
             $this->store->put($key, $value, $minutes);
             $this->deleteCacheFlag($key);
         }
@@ -74,6 +83,9 @@ class Repository extends BaseRepository
 
         // If creating the cache flag is successful, finish this up
         if (!is_null($this->createCacheFlag($key))) {
+            if ($this->debug) {
+                Log::debug('Generating cache for ' . $key);
+            }
             $this->forever($key, $value = $callback());
             $this->deleteCacheFlag($key);
         }
