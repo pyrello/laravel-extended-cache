@@ -2,10 +2,8 @@
 
 use Carbon\Carbon;
 use Closure;
-use \Config;
 use Illuminate\Cache\Repository as BaseRepository;
 use Illuminate\Cache\StoreInterface;
-use \Log;
 
 class Repository extends BaseRepository
 {
@@ -55,12 +53,11 @@ class Repository extends BaseRepository
 
         if ( ! is_null($minutes))
         {
-            $this->createCacheFlag($key);
-            if ($this->debug) {
-                Log::debug('Generating cache for ' . $key);
+            // If creating the cache flag is successful, finish this up
+            if (!is_null($this->createCacheFlag($key))) {
+                $this->store->put($key, $value, $minutes);
+                $this->deleteCacheFlag($key);
             }
-            $this->store->put($key, $value, $minutes);
-            $this->deleteCacheFlag($key);
         }
     }
 
@@ -83,9 +80,6 @@ class Repository extends BaseRepository
 
         // If creating the cache flag is successful, finish this up
         if (!is_null($this->createCacheFlag($key))) {
-            if ($this->debug) {
-                Log::debug('Generating cache for ' . $key);
-            }
             $this->forever($key, $value = $callback());
             $this->deleteCacheFlag($key);
         }
@@ -116,7 +110,7 @@ class Repository extends BaseRepository
 
     public function getCacheFlag($key)
     {
-        $cache_flag = \DB::table($this->table)->where('key', 'LIKE', $this->getCacheFlagKey($key) . '%')->first();
+        $cache_flag = \DB::table($this->table)->where('key', '=', $this->getCacheFlagKey($key))->first();
         // todo: abstract this into a separate layer so it doesn't call the database directly.
         return $cache_flag;
     }
@@ -132,7 +126,7 @@ class Repository extends BaseRepository
         try {
             // Create the cache flag
             return \DB::table($this->table)->insert([
-                'key' => $this->getCacheFlagKey($key) . '_' . md5(time()),
+                'key' => $this->getCacheFlagKey($key),
                 'created_at' => Carbon::now(),
             ]);
         } catch (\Exception $e) {
@@ -147,7 +141,7 @@ class Repository extends BaseRepository
      */
     public function deleteCacheFlag($key)
     {
-        \DB::table($this->table)->where('key', 'LIKE', $this->getCacheFlagKey($key) . '%')->delete();
+        \DB::table($this->table)->where('key', '=', $this->getCacheFlagKey($key))->delete();
     }
 
     /**
